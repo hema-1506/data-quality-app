@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Smart Data Quality Analyzer</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: #f3f4f6;
+    padding: 40px;
+    color: #1f2937;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+}
+
+h1 {
+    text-align: center;
+}
+
+button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #1d4ed8;
+}
+
+.metrics {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.card {
+    background: #f9fafb;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.value {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.health {
+    margin-top: 20px;
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.good { background:#d1fae5; }
+.avg { background:#fef3c7; }
+.poor { background:#fee2e2; }
+
+.history-card {
+    background:#eef2ff;
+    padding:10px;
+    margin-top:10px;
+    border-radius:8px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Data Quality Analyzer</h1>
+
+<input type="file" id="fileInput">
+<br>
+
+<button onclick="uploadFile()">Analyze</button>
+<button onclick="document.getElementById('fileInput').click()">Edit File</button>
+
+<div id="fileName"></div>
+
+<div id="result"></div>
+
+<h2>Previous Files</h2>
+<div id="history"></div>
+
+</div>
+
+<script>
+
+async function getResult(jobId) {
+
+    for (let i = 0; i < 12; i++) {
+
+        const res = await fetch(`https://5ee2ri44j2.execute-api.us-east-1.amazonaws.com/result?job_id=${jobId}`);
+
+        if (res.status === 200) {
+            return await res.json();
+        }
+
+        await new Promise(r => setTimeout(r, 2000));
+    }
+
+    throw new Error("timeout");
+}
+
+
+// 🔥 SAVE HISTORY
+function saveHistory(result, fileName) {
+
+    let history = JSON.parse(localStorage.getItem("history")) || [];
+
+    history.push({
+        fileName,
+        result,
+        time: new Date().toLocaleString()
+    });
+
+    localStorage.setItem("history", JSON.stringify(history));
+
+    loadHistory();
+}
+
+
+// 🔥 LOAD HISTORY
+function loadHistory() {
+
+    let history = JSON.parse(localStorage.getItem("history")) || [];
+
+    let html = "";
+
+    history.forEach((item, index) => {
+
+        html += `
+        <div class="history-card">
+            <b>${item.fileName}</b><br>
+            Rows: ${item.result.rows} |
+            Valid: ${item.result.valid} |
+            Invalid: ${item.result.invalid}<br>
+            ${item.time}
+            <br>
+            <button onclick="deleteHistory(${index})">Remove</button>
+        </div>`;
+    });
+
+    document.getElementById("history").innerHTML = html;
+}
+
+
+// 🔥 DELETE
+function deleteHistory(index) {
+
+    let history = JSON.parse(localStorage.getItem("history")) || [];
+
+    history.splice(index, 1);
+
+    localStorage.setItem("history", JSON.stringify(history));
+
+    loadHistory();
+}
+
+
+// 🚀 MAIN FUNCTION
+async function uploadFile() {
+
+    const file = document.getElementById("fileInput").files[0];
+
+    if (!file) return alert("Upload file");
+
+    document.getElementById("fileName").innerText = "Uploaded: " + file.name;
+
+    const text = await file.text();
+
+    const res = await fetch("https://1eqilitcmb.execute-api.us-east-1.amazonaws.com/prod/analyze", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ data: text })
+    });
+
+    const data = await res.json();
+    const jobId = data.job_id;
+
+    try {
+
+        const result = await getResult(jobId);
+
+        saveHistory(result, file.name);
+
+        let color = "avg";
+        if(result.health === "Good") color = "good";
+        if(result.health === "Poor") color = "poor";
+
+        let html = `
+        <div class="metrics">
+            <div class="card"><div class="value">${result.rows}</div>Rows</div>
+            <div class="card"><div class="value">${result.missing}</div>Missing</div>
+            <div class="card"><div class="value">${result.valid}</div>Valid</div>
+            <div class="card"><div class="value">${result.invalid}</div>Invalid</div>
+        </div>
+
+        <div class="health ${color}">
+            Health: ${result.health}
+        </div>
+        `;
+
+        // 🔥 TIME DATA DISPLAY
+        if(result.converted_times && result.converted_times.length > 0){
+
+            html += "<h3>Converted Times</h3>";
+
+            result.converted_times.forEach(t => {
+                html += `<div>${JSON.stringify(t)}</div>`;
+            });
+        }
+
+        document.getElementById("result").innerHTML = html;
+
+    } catch (err) {
+
+        document.getElementById("result").innerHTML = "Processing taking longer...";
+    }
+}
+
+
+// LOAD HISTORY ON START
+window.onload = loadHistory;
+
+</script>
+
+</body>
+</html>
